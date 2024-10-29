@@ -7,12 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 )
 
 type Histo struct {
 	Name string
 	H    []float64
+}
+
+type nameScorePair struct {
+	Name  string
+	Score float64
 }
 
 func computeHistogram(imagePath string, depth int) (Histo, error) {
@@ -28,14 +34,13 @@ func computeHistogram(imagePath string, depth int) (Histo, error) {
 	}
 
 	bounds := img.Bounds()
-	histogram := make([]float64, 1<<(3*depth)) // Adjustment for reduced color space.
+	histogram := make([]float64, 1<<(3*depth))
 
 	var totalPixels int
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b, _ := img.At(x, y).RGBA()
-			//  reduce the color depth and calculate histogram index.
-			r = r >> (16 - depth) // shift for 8-bit depth images and then reducing  depth.
+			r = r >> (16 - depth)
 			g = g >> (16 - depth)
 			b = b >> (16 - depth)
 			index := (r << (2 * depth)) + (g << depth) + b
@@ -44,7 +49,6 @@ func computeHistogram(imagePath string, depth int) (Histo, error) {
 		}
 	}
 
-	// Normalize the histogram.
 	for i := range histogram {
 		histogram[i] /= float64(totalPixels)
 	}
@@ -67,7 +71,6 @@ func min(a, b float64) float64 {
 	return b
 }
 
-// divideDataset divides the dataset into K slices.
 func divideDataset(files []os.DirEntry, k int) [][]os.DirEntry {
 	var slices [][]os.DirEntry
 	n := len(files)
@@ -81,7 +84,6 @@ func divideDataset(files []os.DirEntry, k int) [][]os.DirEntry {
 	return slices
 }
 
-// processSlice computes histograms for a slice of images.
 func processSlice(slice []os.DirEntry, imageDatasetDirectory string, depth int, histogramsChan chan<- Histo, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for _, file := range slice {
@@ -98,13 +100,21 @@ func processSlice(slice []os.DirEntry, imageDatasetDirectory string, depth int, 
 }
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Println("Wrong input on terminal. Please write: go run similaritySearch.go <queryImageFilename> imageDataset2_15_20")
+	if len(os.Args) != 4 {
+		fmt.Println("Usage: go run Src/main.go <queryImageFilename> <imageDatasetDirectory> <k>")
 		os.Exit(1)
 	}
 
 	queryImageFilename := os.Args[1]
 	imageDatasetDirectory := os.Args[2]
+
+	k, err := strconv.Atoi(os.Args[3])
+	if err != nil || k <= 0 {
+		fmt.Println("Error: <k> must be a positive integer")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Finding similarity with K=%d\n", k)
 
 	queryHisto, err := computeHistogram(queryImageFilename, 3)
 	if err != nil {
@@ -118,10 +128,6 @@ func main() {
 		return
 	}
 
-	//BEGINNING
-	//Specifying k, the number of Go Routines that we will be using to split the dataset
-	k := 256
-	fmt.Printf("Finding similarity with K=%d\n", k)
 	var wg sync.WaitGroup
 	histogramsChan := make(chan Histo, len(files))
 	slices := divideDataset(files, k)
@@ -155,51 +161,4 @@ func main() {
 	for i := 0; i < len(pairs) && i < 5; i++ {
 		fmt.Printf("%d: %s - Score: %f\n", i+1, pairs[i].Name, pairs[i].Score)
 	}
-
-	//END
-
-	/*MEASURING TIME*/
-	//PRESS CONTROL SHIFT Z ON AN IDEA
-	//WHILE MEASURING TIME WE MAKE SURE TO NOT USE ANY PRINT STATEMENTS AS PROF. LAGANIERE ONCE TOLD ME
-	//PRINT STATEMENTS GO THROUGH THE OS TO DISPLAY INFORMATION AND GIVE YOU ERRONEOUS TIME MEASUREMENT
-	/*k := 1048
-	startTime := time.Now()
-	var wg sync.WaitGroup
-	histogramsChan := make(chan Histo, len(files))
-	slices := divideDataset(files, k)
-
-	for _, slice := range slices {
-		wg.Add(1)
-		go processSlice(slice, imageDatasetDirectory, 3, histogramsChan, &wg)
-	}
-
-	go func() {
-		wg.Wait()
-		close(histogramsChan)
-	}()
-
-	similarityScores := make(map[string]float64)
-	for histo := range histogramsChan {
-		score := compareHistograms(queryHisto, histo)
-		similarityScores[histo.Name] = score
-	}
-
-	var pairs []nameScorePair
-	for name, score := range similarityScores {
-		pairs = append(pairs, nameScorePair{Name: name, Score: score})
-	}
-
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].Score > pairs[j].Score
-	})
-
-	// After measuring we print the execution time for this value of K
-	endTime := time.Now()
-	fmt.Printf("Execution time for K=%d: %v\n", k, endTime.Sub(startTime))*/
-
-}
-
-type nameScorePair struct {
-	Name  string
-	Score float64
 }
